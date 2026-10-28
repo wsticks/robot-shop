@@ -1,0 +1,21 @@
+# Overrides for the second capstone. Instana stays off.
+eum:
+  key: null
+  url: ""
+
+# Avoids an AWS load balancer. Use kubectl port-forward for the demo.
+nodeport: true
+
+redis:
+  storageClassName: gp3
+
+loadgen:
+  enabled: true
+  clients: "5"
+
+payment:
+  # Build this first. See CAPSTONE.md. The stock Docker Hub image has no OTEL packages.
+  image: robotshop/rs-payment:capstone
+  otel:
+    enabled: true
+    endpoint: http://otel-collector.observability.svc.cluster.local:4317

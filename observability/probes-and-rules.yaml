@@ -1,0 +1,88 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: robot-shop
+  namespace: observability
+spec:
+  interval: 30s
+  module: http_2xx
+  prober:
+    url: blackbox.observability.svc.cluster.local:9115
+    scheme: http
+    path: /probe
+  targets:
+    staticConfig:
+      labels:
+        shop: robot-shop
+      static:
+        - http://web.robot-shop.svc.cluster.local:8080/
+        - http://catalogue.robot-shop.svc.cluster.local:8080/health
+        - http://cart.robot-shop.svc.cluster.local:8080/health
+        - http://payment.robot-shop.svc.cluster.local:8080/health
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: payment
+  namespace: robot-shop
+spec:
+  selector:
+    matchLabels:
+      service: payment
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cart
+  namespace: robot-shop
+spec:
+  selector:
+    matchLabels:
+      service: cart
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: robot-shop-slo
+  namespace: observability
+spec:
+  groups:
+    - name: robot-shop.availability
+      rules:
+        - alert: PaymentAvailabilityLow
+          expr: |
+            (
+              avg_over_time(probe_success{instance=~".*//payment\\..*"}[5m]) < 0.99
+            )
+            or
+            (
+              sum(rate(payment_requests_total{status=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(payment_requests_total[5m])), 0.001)
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: page
+            service: payment
+          annotations:
+            summary: Payment availability is below the SLO
+            description: The payment health probe is failing, or more than 5 percent of checkout requests are errors.
+            runbook_url: https://github.com/wsticks/robot-shop/blob/main/docs/runbook-payment.md
+        - alert: PaymentErrorBudgetBurn
+          expr: avg_over_time(probe_success{instance=~".*//payment\\..*"}[1h]) < 0.99
+          for: 10m
+          labels:
+            severity: ticket
+            service: payment
+          annotations:
+            summary: Payment error budget is burning over the last hour
+            description: One hour success rate is under 99 percent. This is the slow check. The fast one is PaymentAvailabilityLow.
+            runbook_url: https://github.com/wsticks/robot-shop/blob/main/docs/runbook-payment.md

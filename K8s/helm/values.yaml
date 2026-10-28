@@ -5,12 +5,10 @@ image:
   version: latest
   pullPolicy: IfNotPresent
 
-# EUM configuration
-# Provide your key and set the endpoint
+# Instana end-user monitoring stays off. No agent is installed for this capstone.
 eum:
   key: null
-  url: https://eum-eu-west-1.instana.io
-  #url: https://eum-us-west-2.instana.io
+  url: ""
 
 # Pod Security Policy
 psp:
@@ -48,6 +46,17 @@ payment:
   # Default is https://www.paypal.com
   gateway: null
   #gateway: https://www.worldpay.com
+  # Set image to a full ref after you build payment/ with the tracing changes.
+  # Leave it empty to use image.repo/rs-payment:image.version from Docker Hub.
+  image: ""
+  otel:
+    enabled: false
+    endpoint: http://otel-collector.observability.svc.cluster.local:4317
+
+# Steady traffic. Off by default so a plain helm install does not start Locust.
+loadgen:
+  enabled: false
+  clients: "5"
 
 rabbitmq: {}
 

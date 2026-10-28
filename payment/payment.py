@@ -1,6 +1,5 @@
 import random
 
-import instana
 import os
 import sys
 import time
@@ -30,6 +29,9 @@ PromMetrics = {}
 PromMetrics['SOLD_COUNTER'] = Counter('sold_count', 'Running count of items sold')
 PromMetrics['AUS'] = Histogram('units_sold', 'Avergae Unit Sale', buckets=(1, 2, 5, 10, 100))
 PromMetrics['AVS'] = Histogram('cart_value', 'Avergae Value Sale', buckets=(100, 200, 500, 1000, 2000, 5000, 10000))
+# Route pattern, not the raw id, or every checkout becomes its own time series.
+PromMetrics['REQS'] = Counter('payment_requests_total', 'HTTP requests', ['method', 'path', 'status'])
+PromMetrics['LATENCY'] = Histogram('payment_request_duration_seconds', 'HTTP latency', ['path'])
 
 
 @app.errorhandler(Exception)
@@ -42,13 +44,25 @@ def health():
     return 'OK'
 
 # Prometheus
+@app.before_request
+def _timer_start():
+    request.environ['req_start'] = time.time()
+
+
+@app.after_request
+def _timer_end(resp):
+    if request.path in ('/metrics', '/health'):
+        return resp
+    path = request.url_rule.rule if request.url_rule is not None else request.path
+    elapsed = time.time() - request.environ.get('req_start', time.time())
+    PromMetrics['REQS'].labels(request.method, path, str(resp.status_code)).inc()
+    PromMetrics['LATENCY'].labels(path).observe(elapsed)
+    return resp
+
+
 @app.route('/metrics', methods=['GET'])
 def metrics():
-    res = []
-    for m in PromMetrics.values():
-        res.append(prometheus_client.generate_latest(m))
-
-    return Response(res, mimetype='text/plain')
+    return Response(prometheus_client.generate_latest(), mimetype='text/plain')
 
 
 @app.route('/pay/<id>', methods=['POST'])
@@ -143,6 +157,35 @@ def countItems(items):
 
     return count
 
+
+def setup_tracing():
+    endpoint = os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT', '').strip()
+    if not endpoint:
+        app.logger.info('tracing off, OTEL_EXPORTER_OTLP_ENDPOINT is empty')
+        return
+
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    resource = Resource.create({
+        'service.name': os.getenv('OTEL_SERVICE_NAME', 'payment'),
+    })
+    provider = TracerProvider(resource=resource)
+    insecure = os.getenv('OTEL_EXPORTER_OTLP_INSECURE', 'true').lower() == 'true'
+    exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    FlaskInstrumentor().instrument_app(app, excluded_urls='metrics,health')
+    RequestsInstrumentor().instrument()
+    app.logger.info('tracing to %s', endpoint)
+
+
+setup_tracing()
 
 # RabbitMQ
 publisher = Publisher(app.logger)

@@ -1,0 +1,50 @@
+grafana:
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      isDefault: false
+    - name: Jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger.observability.svc.cluster.local:16686
+      isDefault: false
+
+prometheus:
+  prometheusSpec:
+    retention: 5d
+    # This cluster is just for the lab, so pick up every monitor and rule I add.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorNamespaceSelector: {}
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    ruleNamespaceSelector: {}
+
+alertmanager:
+  alertmanagerSpec:
+    secrets:
+      - alertmanager-slack
+  config:
+    route:
+      receiver: slack
+      group_by: ["alertname", "service"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 1h
+    receivers:
+      - name: slack
+        slack_configs:
+          - send_resolved: true
+            api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+            title: '{{ .CommonLabels.alertname }}'
+            text: |-
+              {{ .CommonAnnotations.summary }}
+              {{ .CommonAnnotations.description }}
+              Runbook: {{ .CommonAnnotations.runbook_url }}

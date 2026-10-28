@@ -1,0 +1,38 @@
+{{- if .Values.loadgen.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load
+  labels:
+    service: load
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: load
+  template:
+    metadata:
+      labels:
+        service: load
+    spec:
+      containers:
+        - name: load
+          image: robotshop/rs-load:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOST
+              value: http://web:8080/
+            - name: NUM_CLIENTS
+              value: {{ .Values.loadgen.clients | quote }}
+            - name: SILENT
+              value: "1"
+            - name: ERROR
+              value: "1"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 200Mi
+{{- end }}
