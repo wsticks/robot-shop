@@ -1,19 +1,24 @@
-name: docker-compose-actions-workflow
+name: ci
+
 on:
   push:
     branches:
-      - 'master'
-    paths-ignore:
-      - 'DCOS/**'
-      - 'K8s/**'
-      - 'load-gen/**'
-      - 'OpenShift/**'
-      - 'Swarm/**'
+      - main
+  pull_request:
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Build the stack
-        run: docker-compose build
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: lint the chart
+        run: helm lint K8s/helm
+
+      - name: render the capstone values
+        run: helm template robot-shop K8s/helm -f K8s/helm/values-capstone.yaml > /dev/null
+
+      - name: payment file parses
+        run: python3 -m py_compile payment/payment.py
